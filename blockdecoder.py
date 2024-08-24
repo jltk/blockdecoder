@@ -7,57 +7,89 @@ Convert Bitcoin block data to ASCII format.
 import sys
 import urllib.request
 import threading
+import itertools
 import time
 
 def fetch_block_data(block_hash):
-    """Fetch block data from blockchain.info as a hex string."""
-    url = f"https://blockchain.info/rawblock/{block_hash}?format=hex"
+    """
+    Fetches block data from the blockchain in hexadecimal format.
+    """
     try:
-        with urllib.request.urlopen(url) as response:
-            return response.read().decode("utf-8")
+        with urllib.request.urlopen(f"https://blockchain.info/rawblock/{block_hash}?format=hex") as response:
+            html = response.read()
+            return html.decode("utf-8")
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error: {e.code} - {e.reason}")
+    except urllib.error.URLError as e:
+        print(f"URL Error: {e.reason}")
     except Exception as e:
-        sys.exit(f"Error retrieving block data: {e}")
+        print(f"Unexpected Error: {e}")
+    return None
 
-def hex_to_ascii(hex_data):
-    """Convert hex string to ASCII, ignoring errors."""
-    return bytes.fromhex(hex_data).decode("utf-8", "ignore")
+def decode_to_ascii(hex_data):
+    """
+    Converts hexadecimal block data to an ASCII representation.
+    """
+    try:
+        ascii_block = bytes.fromhex(hex_data).decode("utf-8", "ignore")
+        return ascii_block
+    except ValueError as e:
+        print(f"Decoding Error: {e}")
+    return None
 
-def loading_animation():
-    """Display a loading animation."""
-    while not done_loading:
-        for char in "/—\\|":
-            sys.stdout.write(f'\rLoading {char}')
-            sys.stdout.flush()
-            time.sleep(0.1)
+def show_loading_animation():
+    """
+    Displays a loading animation while fetching and processing data.
+    """
+    for c in itertools.cycle(['|', '/', '-', '\\']):
+        if stop_loading:
+            break
+        sys.stdout.write(f'\rLoading {c}')
+        sys.stdout.flush()
+        time.sleep(0.1)
+
+def output_data(ascii_block, to_file):
+    """
+    Outputs the ASCII block data either to a text file or the terminal.
+    """
+    if to_file:
+        try:
+            with open('block_ascii_output.txt', 'w', encoding='utf-8') as f:
+                f.write(ascii_block)
+            print("Output written to block_ascii_output.txt")
+        except IOError as e:
+            print(f"File Error: {e}")
+    else:
+        print("\n\033[1mConverted to ASCII:\033[0m\n" + ascii_block)
 
 def main():
-    if len(sys.argv) != 2:
-        sys.exit("Usage: python script.py <block_hash>")
+    args = sys.argv[1:]
 
-    block_hash = sys.argv[1]
-    output_choice = input("(d)isplay or (w)rite to file? [d/w]: ").strip().lower()
-    if output_choice not in ['d', 'w']:
-        sys.exit("Invalid choice. Please select 'd' or 'w'.")
+    if not args:
+        print("Usage: python script.py <block_hash>")
+        sys.exit(1)
 
-    global done_loading
-    done_loading = False
-    threading.Thread(target=loading_animation).start()
+    block_hash = args[0]
+    print(f"\033[1mBlock: \033[0m{block_hash}")
 
-    raw_block = fetch_block_data(block_hash)
-    ascii_block = hex_to_ascii(raw_block)
+    choice = input("Do you want to save the output to a text file? (y/n): ").strip().lower()
+    to_file = choice == 'y'
 
-    done_loading = True
-    sys.stdout.write('\rDone!            \n')
-    sys.stdout.flush()
+    global stop_loading
+    stop_loading = False
+    loading_thread = threading.Thread(target=show_loading_animation)
+    loading_thread.start()
 
-    if output_choice == 'd':
-        print("\nWarning: Potentially large output ahead! Consider writing to file.\n")
-        input("Press Enter to continue or CTRL+C to abort...")
-        print(f"\n\033[1mBlock: {block_hash}\033[0m\n{ascii_block}")
+    hex_data = fetch_block_data(block_hash)
+    stop_loading = True
+    loading_thread.join()
+
+    if hex_data:
+        ascii_block = decode_to_ascii(hex_data)
+        if ascii_block:
+            output_data(ascii_block, to_file)
     else:
-        with open(f"{block_hash}_output.txt", 'w', encoding='utf-8') as f:
-            f.write(ascii_block)
-        print(f"\nOutput written to {block_hash}_output.txt")
+        print("Failed to fetch or decode block data.")
 
 if __name__ == "__main__":
     main()
